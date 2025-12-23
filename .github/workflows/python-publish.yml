@@ -116,17 +116,29 @@ jobs:
                   if "mínima" in txt and "máxima" in txt:
                       linhas = sec.text.split("\n")
                       try:
-                          tmin = [l for l in linhas if "mínima" in l.lower()][0]
-                          tmax = [l for l in linhas if "máxima" in l.lower()][0]
-                          dados.append({
-                              "codigo_municipio": codigo,
-                              "data": (hoje + timedelta(days=len(dados))).strftime("%Y-%m-%d"),
-                              "temp_min": tmin.split(":")[-1].replace("°c","").strip(),
-                              "temp_max": tmax.split(":")[-1].replace("°c","").strip(),
-                              "data_coleta": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                          })
-                      except:
-                          pass
+                          # CORREÇÃO: Usar a mesma lógica do seu script avulso
+                          temp_min = None
+                          temp_max = None
+                          
+                          # Buscar temperaturas como no script que funciona
+                          for i in range(len(linhas)):
+                              if "Temperatura Mínima" in linhas[i] or "mínima" in linhas[i].lower():
+                                  if (i + 1) < len(linhas):
+                                      temp_min = linhas[i + 1].replace("°C", "").replace("°c", "").strip()
+                              if "Temperatura Máxima" in linhas[i] or "máxima" in linhas[i].lower():
+                                  if (i + 1) < len(linhas):
+                                      temp_max = linhas[i + 1].replace("°C", "").replace("°c", "").strip()
+                          
+                          if temp_min and temp_max:
+                              dados.append({
+                                  "codigo_municipio": codigo,
+                                  "data": (hoje + timedelta(days=len(dados))).strftime("%Y-%m-%d"),
+                                  "temp_min": temp_min,
+                                  "temp_max": temp_max,
+                                  "data_coleta": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                              })
+                      except Exception as e:
+                          print(f"    Erro ao processar seção: {e}")
 
               if not dados:
                   raise ValueError("Sem dados extraídos")

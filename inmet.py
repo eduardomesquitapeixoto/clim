@@ -344,7 +344,7 @@ def main():
         try:
             # CSV principal
             df.to_csv('/home/peduardo/temperatura_inmet.csv', index=False, encoding='utf-8')
-            print(f"\n💾 Dados salvos em: /home/peduardo/temperatura_inmet.csv")
+            print(f"\n💾 Dados salvos em: temperatura_inmet.csv")
             
             # CSV com timestamp para backup
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')

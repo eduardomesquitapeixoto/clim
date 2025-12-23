@@ -44,14 +44,16 @@ jobs:
     - name: Instalar pacotes Python
       run: |
         python -m pip install --upgrade pip
-        pip install selenium pandas webdriver-manager
+        pip install selenium==4.16.0 pandas==2.1.3 webdriver-manager==4.0.1
     
     - name: Executar coleta INMET
       run: |
         echo "=== INICIANDO COLETA DOS 92 MUNICÍPIOS ==="
         
-        # Criar script Python
+        # Criar script Python CORRIGIDO
         cat > coletar_inmet.py << 'EOF'
+import time
+import random
 import pandas as pd
 import subprocess
 import os
@@ -64,9 +66,10 @@ print(f"Início: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("=" * 80)
 
 # ============================================
-# CONFIGURAÇÕES
+# CONFIGURAÇÕES - IMPORTAÇÕES CORRIGIDAS
 # ============================================
 
+# Tentar importar Selenium com tratamento de erros
 try:
     from selenium import webdriver
     from selenium.webdriver.common.by import By
@@ -74,12 +77,43 @@ try:
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.common.exceptions import TimeoutException
+    print("✓ Selenium importado com sucesso")
+except ImportError as e:
+    print(f"✗ Erro ao importar Selenium: {e}")
+    print("Instalando Selenium...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "selenium==4.16.0"])
+    
+    # Tentar novamente após instalação
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.common.exceptions import TimeoutException
+        print("✓ Selenium importado após instalação")
+    except ImportError as e2:
+        print(f"✗ Falha crítica: Não foi possível importar Selenium: {e2}")
+        sys.exit(1)
+
+# Tentar importar webdriver_manager
+try:
     from webdriver_manager.chrome import ChromeDriverManager
     from selenium.webdriver.chrome.service import Service as ChromeService
-    print("✓ Bibliotecas importadas")
-except Exception as e:
-    print(f"✗ Erro nas importações: {e}")
-    sys.exit(1)
+    print("✓ webdriver_manager importado com sucesso")
+except ImportError as e:
+    print(f"✗ Erro ao importar webdriver_manager: {e}")
+    print("Instalando webdriver-manager...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "webdriver-manager==4.0.1"])
+    
+    # Tentar novamente
+    try:
+        from webdriver_manager.chrome import ChromeDriverManager
+        from selenium.webdriver.chrome.service import Service as ChromeService
+        print("✓ webdriver_manager importado após instalação")
+    except ImportError as e2:
+        print(f"✗ Falha crítica: Não foi possível importar webdriver_manager: {e2}")
+        sys.exit(1)
 
 # ============================================
 # LISTA COMPLETA DOS 92 MUNICÍPIOS DO RJ
@@ -145,7 +179,8 @@ def coletar_municipio(driver, codigo, datas):
         for idx, section in enumerate(sections[:5]):
             try:
                 text = section.text.split('\n')
-                temp_min = temp_max = None
+                temp_min = None
+                temp_max = None
                 
                 for i in range(len(text)):
                     if "Temperatura Mínima" in text[i]:
@@ -161,7 +196,7 @@ def coletar_municipio(driver, codigo, datas):
                         'temp_max': temp_max.strip(),
                         'data_coleta': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     })
-            except:
+            except Exception as e:
                 continue
         
         return resultados
@@ -263,8 +298,8 @@ if __name__ == "__main__":
         
         os.chmod('coleta_status.txt', 0o666)
         print(f"📝 Status salvo em: coleta_status.txt")
-    except:
-        pass
+    except Exception as e:
+        print(f"⚠️  Erro ao salvar status: {e}")
     
     print(f"\n🏁 Término: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 80)
@@ -337,7 +372,7 @@ EOF
             git push origin main
             
             echo "✅ Arquivo inmet.csv salvo no repositório!"
-        else
+        else:
             echo "ℹ️  Nenhuma mudança para commitar"
         fi
     

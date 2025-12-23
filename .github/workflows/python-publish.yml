@@ -1,0 +1,354 @@
+name: Coletor INMET Completo
+
+on:
+  schedule:
+    # 6h e 18h UTC (3h e 15h Brasília) - duas vezes ao dia
+    - cron: '0 6 * * *'
+    - cron: '0 18 * * *'
+  
+  push:
+    branches: [ "main" ]
+  
+  workflow_dispatch:
+
+jobs:
+  coletar-dados:
+    runs-on: ubuntu-22.04
+    
+    timeout-minutes: 60
+    
+    steps:
+    - name: Checkout do código
+      uses: actions/checkout@v4
+    
+    - name: Configurar Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+    
+    - name: Instalar Chrome e dependências
+      run: |
+        echo "=== INSTALANDO CHROME ==="
+        sudo apt-get update
+        
+        # Instalar Chrome
+        wget -q -O chrome.deb "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
+        sudo dpkg -i chrome.deb 2>/dev/null || sudo apt-get install -y -f
+        rm -f chrome.deb
+        
+        # Dependências mínimas
+        sudo apt-get install -y wget xvfb libnss3 libxss1 libasound2 libxtst6
+        
+        echo "Chrome instalado"
+    
+    - name: Instalar pacotes Python
+      run: |
+        python -m pip install --upgrade pip
+        pip install selenium pandas webdriver-manager
+    
+    - name: Executar coleta INMET
+      run: |
+        echo "=== INICIANDO COLETA DOS 92 MUNICÍPIOS ==="
+        
+        # Criar script Python
+        cat > coletar_inmet.py << 'EOF'
+import time
+import random
+import pandas as pd
+import subprocess
+import os
+import sys
+from datetime import datetime, timedelta
+
+print("=" * 80)
+print("COLETOR INMET - 92 MUNICÍPIOS DO RJ")
+print(f"Início: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+print("=" * 80)
+
+# ============================================
+# CONFIGURAÇÕES
+# ============================================
+
+try:
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.common.exceptions import TimeoutException
+    from webdriver_manager.chrome import ChromeDriverManager
+    from selenium.webdriver.chrome.service import Service as ChromeService
+    print("✓ Bibliotecas importadas")
+except Exception as e:
+    print(f"✗ Erro nas importações: {e}")
+    sys.exit(1)
+
+# ============================================
+# LISTA COMPLETA DOS 92 MUNICÍPIOS DO RJ
+# ============================================
+
+MUNICIPIOS_RJ = [
+    '3300100', '3300159', '3300209', '3300225', '3300233', '3300258', '3300308',
+    '3300407', '3300456', '3300506', '3300605', '3300704', '3300803', '3300902',
+    '3300936', '3300951', '3301009', '3301108', '3301157', '3301207', '3301306',
+    '3301405', '3301504', '3301603', '3301702', '3301801', '3301850', '3301876',
+    '3301900', '3302007', '3302056', '3302106', '3302205', '3302254', '3302270',
+    '3302304', '3302403', '3302452', '3302502', '3302601', '3302700', '3302809',
+    '3302858', '3302908', '3303005', '3303104', '3303203', '3303302', '3303401',
+    '3303500', '3303609', '3303708', '3303807', '3303856', '3303906', '3303955',
+    '3304003', '3304102', '3304110', '3304128', '3304144', '3304151', '3304201',
+    '3304300', '3304409', '3304508', '3304524', '3304557', '3304607', '3304706',
+    '3304755', '3304805', '3304904', '3305000', '3305109', '3305133', '3305158',
+    '3305208', '3305307', '3305406', '3305505', '3305554', '3305604', '3305703',
+    '3305752', '3305802', '3305901', '3306008', '3306107', '3306156', '3306206',
+    '3306305'
+]
+
+print(f"Total de municípios: {len(MUNICIPIOS_RJ)}")
+
+# ============================================
+# FUNÇÕES
+# ============================================
+
+def criar_driver():
+    """Cria driver do Chrome"""
+    try:
+        chrome_options = Options()
+        chrome_options.add_argument('--headless=new')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--disable-extensions')
+        
+        service = ChromeService(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+        driver.set_page_load_timeout(45)
+        print("✓ Driver criado")
+        return driver
+    except Exception as e:
+        print(f"✗ Erro ao criar driver: {e}")
+        return None
+
+def coletar_municipio(driver, codigo, datas):
+    """Coleta dados de um município"""
+    try:
+        url = f"https://previsao.inmet.gov.br/{codigo}"
+        driver.get(url)
+        
+        wait = WebDriverWait(driver, 25)
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "section.grid.grid-template-columns-4")))
+        
+        time.sleep(1)
+        
+        sections = driver.find_elements(By.CSS_SELECTOR, "section.grid.grid-template-columns-4")
+        resultados = []
+        
+        for idx, section in enumerate(sections[:5]):
+            try:
+                text = section.text.split('\n')
+                temp_min = temp_max = None
+                
+                for i in range(len(text)):
+                    if "Temperatura Mínima" in text[i]:
+                        temp_min = text[i + 1] if (i + 1) < len(text) else ''
+                    if "Temperatura Máxima" in text[i]:
+                        temp_max = text[i + 1] if (i + 1) < len(text) else ''
+                
+                if temp_min and temp_max:
+                    resultados.append({
+                        'codigo_municipio': codigo,
+                        'data': datas[idx].strftime('%Y-%m-%d'),
+                        'temp_min': temp_min.strip(),
+                        'temp_max': temp_max.strip(),
+                        'data_coleta': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    })
+            except:
+                continue
+        
+        return resultados
+    except TimeoutException:
+        print(f"  ⏱️  Timeout: {codigo}")
+        return []
+    except Exception as e:
+        print(f"  ⚠️  Erro: {codigo} - {type(e).__name__}")
+        return []
+
+# ============================================
+# EXECUÇÃO PRINCIPAL
+# ============================================
+
+def main():
+    driver = criar_driver()
+    if not driver:
+        return False
+    
+    hoje = datetime.today()
+    datas = [hoje + timedelta(days=i) for i in range(5)]
+    
+    todos_dados = []
+    
+    for idx, municipio in enumerate(MUNICIPIOS_RJ, 1):
+        print(f"[{idx:03d}/092] Coletando {municipio}")
+        
+        dados = coletar_municipio(driver, municipio, datas)
+        if dados:
+            todos_dados.extend(dados)
+            print(f"  ✓ {len(dados)} registros")
+        else:
+            print(f"  ✗ Sem dados")
+        
+        # Pausa entre requisições
+        if idx < len(MUNICIPIOS_RJ):
+            time.sleep(random.uniform(2, 4))
+    
+    driver.quit()
+    
+    # SALVAR DADOS
+    if todos_dados:
+        df = pd.DataFrame(todos_dados)
+        
+        # NOME DO ARQUIVO: inmet.csv
+        nome_arquivo = 'inmet.csv'
+        
+        try:
+            df.to_csv(nome_arquivo, index=False, encoding='utf-8')
+            
+            # VERIFICAR E CRIAR SE NÃO EXISTIR
+            if not os.path.exists(nome_arquivo):
+                print(f"⚠️  Arquivo não criado, criando manualmente...")
+                df.to_csv(nome_arquivo, index=False, encoding='utf-8')
+            
+            # DAR PERMISSÕES
+            os.chmod(nome_arquivo, 0o666)
+            
+            file_size = os.path.getsize(nome_arquivo)
+            print(f"\n✅ ARQUIVO SALVO: {nome_arquivo}")
+            print(f"📊 Total de registros: {len(df)}")
+            print(f"📦 Tamanho: {file_size:,} bytes")
+            print(f"🔧 Permissões: {oct(os.stat(nome_arquivo).st_mode)[-3:]}")
+            
+            return True
+        except Exception as e:
+            print(f"✗ Erro ao salvar arquivo: {e}")
+            return False
+    else:
+        print("\n⚠️  NENHUM DADO COLETADO")
+        
+        # CRIAR ARQUIVO VAZIO COM CABEÇALHO
+        try:
+            nome_arquivo = 'inmet.csv'
+            cabecalho = "codigo_municipio,data,temp_min,temp_max,data_coleta\n"
+            with open(nome_arquivo, 'w', encoding='utf-8') as f:
+                f.write(cabecalho)
+            
+            # DAR PERMISSÕES
+            os.chmod(nome_arquivo, 0o666)
+            print(f"✅ Arquivo vazio criado: {nome_arquivo}")
+            return True
+        except Exception as e:
+            print(f"✗ Erro ao criar arquivo vazio: {e}")
+            return False
+
+# EXECUTAR
+if __name__ == "__main__":
+    print("\n" + "=" * 80)
+    sucesso = main()
+    
+    # CRIAR ARQUIVO DE STATUS
+    try:
+        with open('coleta_status.txt', 'w') as f:
+            f.write(f"STATUS: {'SUCESSO' if sucesso else 'FALHA'}\n")
+            f.write(f"DATA: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"MUNICIPIOS: {len(MUNICIPIOS_RJ)}\n")
+            f.write(f"ARQUIVO: inmet.csv\n")
+        
+        os.chmod('coleta_status.txt', 0o666)
+        print(f"📝 Status salvo em: coleta_status.txt")
+    except:
+        pass
+    
+    print(f"\n🏁 Término: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 80)
+EOF
+
+        # CONFIGURAR AMBIENTE
+        Xvfb :99 -screen 0 1920x1080x24 &
+        export DISPLAY=:99
+        
+        # EXECUTAR SCRIPT
+        python coletar_inmet.py
+        
+        # VERIFICAR ARQUIVOS
+        echo "=== ARQUIVOS GERADOS ==="
+        sleep 2
+        
+        # GARANTIR QUE O ARQUIVO EXISTA E TENHA PERMISSÕES
+        if [ ! -f "inmet.csv" ]; then
+            echo "⚠️  Arquivo inmet.csv não encontrado, criando..."
+            echo "codigo_municipio,data,temp_min,temp_max,data_coleta" > inmet.csv
+        fi
+        
+        # DAR PERMISSÕES COMPLETAS
+        chmod 666 inmet.csv 2>/dev/null || true
+        chmod 666 coleta_status.txt 2>/dev/null || true
+        
+        # MOSTRAR INFORMAÇÕES
+        echo "📄 Arquivo principal: inmet.csv"
+        if [ -f "inmet.csv" ]; then
+            lines=$(wc -l < inmet.csv)
+            size=$(stat -c%s inmet.csv 2>/dev/null || echo "0")
+            echo "   Linhas: $lines"
+            echo "   Tamanho: $size bytes"
+            echo "   Permissões: $(stat -c%A inmet.csv 2>/dev/null || echo 'N/A')"
+            
+            echo -e "\n📋 Primeiras 3 linhas:"
+            head -4 inmet.csv
+        fi
+    
+    - name: Commitar arquivo inmet.csv
+      if: always()
+      run: |
+        echo "=== SALVANDO ARQUIVO inmet.csv ==="
+        
+        # CONFIGURAR GIT
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # GARANTIR QUE O ARQUIVO EXISTA
+        if [ ! -f "inmet.csv" ]; then
+            echo "⚠️  Criando arquivo inmet.csv vazio..."
+            echo "codigo_municipio,data,temp_min,temp_max,data_coleta" > inmet.csv
+        fi
+        
+        # DAR PERMISSÕES
+        chmod 666 inmet.csv coleta_status.txt 2>/dev/null || true
+        
+        # ADICIONAR E COMMITAR
+        git add inmet.csv coleta_status.txt 2>/dev/null || true
+        
+        if ! git diff --cached --quiet; then
+            TIMESTAMP=$(date +'%Y-%m-%d %H:%M:%S')
+            LINES=$(wc -l < inmet.csv 2>/dev/null || echo "1")
+            RECORDS=$((LINES - 1))
+            
+            git commit -m "📊 Dados INMET - $TIMESTAMP ($RECORDS registros)"
+            
+            # SINCRONIZAR
+            git pull origin main --rebase --autostash 2>/dev/null || true
+            git push origin main
+            
+            echo "✅ Arquivo inmet.csv salvo no repositório!"
+        else
+            echo "ℹ️  Nenhuma mudança para commitar"
+        fi
+    
+    - name: Upload artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: dados-inmet
+        path: |
+          inmet.csv
+          coleta_status.txt
+        retention-days: 7

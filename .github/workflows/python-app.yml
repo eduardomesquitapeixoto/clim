@@ -1,4 +1,4 @@
-name: Coletor INMET Automático
+name: Coletor INMET Completo
 
 on:
   schedule:
@@ -15,13 +15,11 @@ jobs:
   coletar-dados:
     runs-on: ubuntu-22.04
     
-    timeout-minutes: 45  # Aumentado para processar todos municípios
+    timeout-minutes: 60
     
     steps:
     - name: Checkout do código
       uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Configurar Python 3.10
       uses: actions/setup-python@v4
@@ -30,8 +28,7 @@ jobs:
     
     - name: Instalar Chrome e dependências
       run: |
-        echo "=== INSTALANDO CHROME E DEPENDÊNCIAS ==="
-        
+        echo "=== INSTALANDO CHROME ==="
         sudo apt-get update
         
         # Instalar Chrome
@@ -39,41 +36,22 @@ jobs:
         sudo dpkg -i chrome.deb 2>/dev/null || sudo apt-get install -y -f
         rm -f chrome.deb
         
-        # Instalar todas as dependências do sistema necessárias
-        sudo apt-get install -y \
-          wget unzip xvfb \
-          libnss3 libxss1 libasound2 libxtst6 \
-          libgbm1 libxshmfence1 libdrm2 \
-          libxcb1 libx11-xcb1 \
-          libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 \
-          libcups2 libdbus-1-3 \
-          libpango-1.0-0 libcairo2 libfreetype6 \
-          libharfbuzz0b libgstreamer1.0-0 \
-          libgstreamer-plugins-base1.0-0
+        # Dependências mínimas
+        sudo apt-get install -y wget xvfb libnss3 libxss1 libasound2 libxtst6
         
-        echo "Chrome instalado:"
-        google-chrome --version
+        echo "Chrome instalado"
     
     - name: Instalar pacotes Python
       run: |
-        echo "=== INSTALANDO PACOTES PYTHON ==="
         python -m pip install --upgrade pip
-        
-        pip install \
-          selenium==4.16.0 \
-          pandas==2.1.3 \
-          numpy==1.24.3 \
-          webdriver-manager==4.0.1
-        
-        echo "Pacotes instalados com sucesso"
+        pip install selenium pandas webdriver-manager
     
-    - name: Executar script de coleta INMET
-      id: coletar
+    - name: Executar coleta INMET
       run: |
-        echo "=== EXECUTANDO SCRIPT DE COLETA COMPLETO ==="
+        echo "=== INICIANDO COLETA DOS 92 MUNICÍPIOS ==="
         
-        # Criar script Python com SEU CÓDIGO ORIGINAL adaptado
-        cat > coletar_inmet_completo.py << 'EOF'
+        # Criar script Python
+        cat > coletar_inmet.py << 'EOF'
 import time
 import random
 import pandas as pd
@@ -83,186 +61,117 @@ import sys
 from datetime import datetime, timedelta
 
 print("=" * 80)
-print("INICIANDO COLETA DE DADOS DO INMET - GITHUB ACTIONS")
+print("COLETOR INMET - 92 MUNICÍPIOS DO RJ")
 print(f"Início: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("=" * 80)
 
 # ============================================
-# CONFIGURAÇÕES INICIAIS
+# CONFIGURAÇÕES
 # ============================================
 
-# Importações
 try:
     from selenium import webdriver
     from selenium.webdriver.common.by import By
     from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
-    from selenium.common.exceptions import TimeoutException, WebDriverException
+    from selenium.common.exceptions import TimeoutException
     from webdriver_manager.chrome import ChromeDriverManager
     from selenium.webdriver.chrome.service import Service as ChromeService
-    
-    print("✓ Bibliotecas importadas com sucesso")
+    print("✓ Bibliotecas importadas")
 except Exception as e:
-    print(f"✗ Erro ao importar bibliotecas: {e}")
+    print(f"✗ Erro nas importações: {e}")
     sys.exit(1)
 
-# Verificar Chrome
-try:
-    chrome_version = subprocess.check_output(['google-chrome', '--version'], stderr=subprocess.STDOUT)
-    print(f"✓ Chrome encontrado: {chrome_version.decode().strip()}")
-except:
-    try:
-        chrome_version = subprocess.check_output(['google-chrome-stable', '--version'], stderr=subprocess.STDOUT)
-        print(f"✓ Chrome encontrado: {chrome_version.decode().strip()}")
-    except:
-        print("⚠️ Chrome não encontrado, usando webdriver-manager")
-
-# Configuração do WebDriver para GitHub Actions
-chrome_options = Options()
-
-# Opções essenciais para headless no GitHub Actions
-chrome_options.add_argument('--headless=new')
-chrome_options.add_argument('--no-sandbox')
-chrome_options.add_argument('--disable-dev-shm-usage')
-chrome_options.add_argument('--disable-gpu')
-chrome_options.add_argument('--window-size=1920,1080')
-
-# Opções para estabilidade
-chrome_options.add_argument('--disable-software-rasterizer')
-chrome_options.add_argument('--disable-extensions')
-chrome_options.add_argument('--disable-background-networking')
-chrome_options.add_argument('--disable-default-apps')
-chrome_options.add_argument('--disable-sync')
-chrome_options.add_argument('--disable-translate')
-chrome_options.add_argument('--disable-background-timer-throttling')
-chrome_options.add_argument('--disable-renderer-backgrounding')
-chrome_options.add_argument('--disable-backgrounding-occluded-windows')
-chrome_options.add_argument('--disable-client-side-phishing-detection')
-chrome_options.add_argument('--disable-crash-reporter')
-chrome_options.add_argument('--no-crash-upload')
-chrome_options.add_argument('--disable-breakpad')
-
-# Opções para evitar detecção
-chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-chrome_options.add_experimental_option('useAutomationExtension', False)
-chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-
-# Configurações de preferências
-prefs = {
-    'profile.default_content_setting_values': {
-        'images': 2,
-        'javascript': 1,
-    },
-    'profile.managed_default_content_settings.images': 2
-}
-chrome_options.add_experimental_option('prefs', prefs)
-
 # ============================================
-# LISTA DE MUNICÍPIOS (REDUZIDA PARA TESTE RÁPIDO)
+# LISTA COMPLETA DOS 92 MUNICÍPIOS DO RJ
 # ============================================
 
-municipios = [
+MUNICIPIOS_RJ = [
     '3300100', '3300159', '3300209', '3300225', '3300233', '3300258', '3300308',
     '3300407', '3300456', '3300506', '3300605', '3300704', '3300803', '3300902',
-    '3300936', '3300951', '3301009', '3301108', '3301157', '3301207'
+    '3300936', '3300951', '3301009', '3301108', '3301157', '3301207', '3301306',
+    '3301405', '3301504', '3301603', '3301702', '3301801', '3301850', '3301876',
+    '3301900', '3302007', '3302056', '3302106', '3302205', '3302254', '3302270',
+    '3302304', '3302403', '3302452', '3302502', '3302601', '3302700', '3302809',
+    '3302858', '3302908', '3303005', '3303104', '3303203', '3303302', '3303401',
+    '3303500', '3303609', '3303708', '3303807', '3303856', '3303906', '3303955',
+    '3304003', '3304102', '3304110', '3304128', '3304144', '3304151', '3304201',
+    '3304300', '3304409', '3304508', '3304524', '3304557', '3304607', '3304706',
+    '3304755', '3304805', '3304904', '3305000', '3305109', '3305133', '3305158',
+    '3305208', '3305307', '3305406', '3305505', '3305554', '3305604', '3305703',
+    '3305752', '3305802', '3305901', '3306008', '3306107', '3306156', '3306206',
+    '3306305'
 ]
 
-print(f"Total de municípios a processar: {len(municipios)}")
+print(f"Total de municípios: {len(MUNICIPIOS_RJ)}")
 
 # ============================================
-# FUNÇÕES AUXILIARES (MANTIDAS DO SEU CÓDIGO)
+# FUNÇÕES
 # ============================================
 
 def criar_driver():
-    """Cria um novo driver do Chrome com tratamento de erros"""
-    tentativas = 0
-    max_tentativas = 3
-    
-    while tentativas < max_tentativas:
-        try:
-            tentativas += 1
-            print(f"\nTentativa {tentativas} de criar o driver...")
-            
-            # Usar webdriver-manager para gerenciar automaticamente
-            service = ChromeService(ChromeDriverManager().install())
-            
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-            
-            # Configurar timeouts
-            driver.set_page_load_timeout(60)
-            driver.implicitly_wait(10)
-            
-            # Executar script para evitar detecção
-            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            
-            print("✓ Driver criado com sucesso!")
-            return driver
-            
-        except Exception as e:
-            print(f"✗ Erro ao criar driver (tentativa {tentativas}): {type(e).__name__}")
-            if tentativas < max_tentativas:
-                print(f"Aguardando 3 segundos antes de tentar novamente...")
-                time.sleep(3)
-            else:
-                print("\nNão foi possível criar o driver.")
-                raise
-
-def processar_municipio(driver, municipio, datas):
-    """Processa um município individual"""
-    url = f"https://previsao.inmet.gov.br/{municipio}"
-    
+    """Cria driver do Chrome"""
     try:
-        print(f"  Acessando: {url}")
+        chrome_options = Options()
+        chrome_options.add_argument('--headless=new')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--disable-extensions')
+        
+        service = ChromeService(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+        driver.set_page_load_timeout(45)
+        print("✓ Driver criado")
+        return driver
+    except Exception as e:
+        print(f"✗ Erro ao criar driver: {e}")
+        return None
+
+def coletar_municipio(driver, codigo, datas):
+    """Coleta dados de um município"""
+    try:
+        url = f"https://previsao.inmet.gov.br/{codigo}"
         driver.get(url)
         
-        # Aguardar carregamento
-        wait = WebDriverWait(driver, 30)
-        wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "section.grid.grid-template-columns-4"))
-        )
+        wait = WebDriverWait(driver, 25)
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "section.grid.grid-template-columns-4")))
         
-        # Pequena pausa para renderização
-        time.sleep(1.5)
+        time.sleep(1)
         
         sections = driver.find_elements(By.CSS_SELECTOR, "section.grid.grid-template-columns-4")
-        
         resultados = []
         
-        for idx_section, section in enumerate(sections[:5]):  # Apenas 5 dias
+        for idx, section in enumerate(sections[:5]):
             try:
-                section_text = section.text.split("\n")
+                text = section.text.split('\n')
+                temp_min = temp_max = None
                 
-                temp_min = None
-                temp_max = None
-                
-                # Buscar temperaturas
-                for i in range(len(section_text)):
-                    if "Temperatura Mínima" in section_text[i]:
-                        temp_min = section_text[i + 1] if (i + 1) < len(section_text) else ''
-                    if "Temperatura Máxima" in section_text[i]:
-                        temp_max = section_text[i + 1] if (i + 1) < len(section_text) else ''
+                for i in range(len(text)):
+                    if "Temperatura Mínima" in text[i]:
+                        temp_min = text[i + 1] if (i + 1) < len(text) else ''
+                    if "Temperatura Máxima" in text[i]:
+                        temp_max = text[i + 1] if (i + 1) < len(text) else ''
                 
                 if temp_min and temp_max:
                     resultados.append({
-                        'Código Município': municipio,
-                        'Data': datas[idx_section].strftime('%Y-%m-%d'),
-                        'Temperatura Mínima': temp_min.strip(),
-                        'Temperatura Máxima': temp_max.strip()
+                        'codigo_municipio': codigo,
+                        'data': datas[idx].strftime('%Y-%m-%d'),
+                        'temp_min': temp_min.strip(),
+                        'temp_max': temp_max.strip(),
+                        'data_coleta': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     })
-                    
-            except Exception as e:
-                print(f"    Erro no dia {idx_section+1}: {e}")
+            except:
                 continue
         
         return resultados
-        
     except TimeoutException:
-        print(f"    Timeout ao carregar página")
+        print(f"  ⏱️  Timeout: {codigo}")
         return []
     except Exception as e:
-        print(f"    Erro geral: {type(e).__name__}")
+        print(f"  ⚠️  Erro: {codigo} - {type(e).__name__}")
         return []
 
 # ============================================
@@ -270,319 +179,176 @@ def processar_municipio(driver, municipio, datas):
 # ============================================
 
 def main():
-    """Função principal de execução"""
-    
-    # Criar driver
-    try:
-        driver = criar_driver()
-    except Exception as e:
-        print(f"\n✗ FALHA CRÍTICA: Não foi possível iniciar o Chrome: {e}")
+    driver = criar_driver()
+    if not driver:
         return False
     
-    # Preparar datas
     hoje = datetime.today()
     datas = [hoje + timedelta(days=i) for i in range(5)]
     
-    # Lista para armazenar dados
-    dados = []
+    todos_dados = []
     
-    # Configurações
-    ESPERA_MIN = 3
-    ESPERA_MAX = 8
-    MAX_TENTATIVAS = 3  # Reduzido para GitHub Actions
+    for idx, municipio in enumerate(MUNICIPIOS_RJ, 1):
+        print(f"[{idx:03d}/092] Coletando {municipio}")
+        
+        dados = coletar_municipio(driver, municipio, datas)
+        if dados:
+            todos_dados.extend(dados)
+            print(f"  ✓ {len(dados)} registros")
+        else:
+            print(f"  ✗ Sem dados")
+        
+        # Pausa entre requisições
+        if idx < len(MUNICIPIOS_RJ):
+            time.sleep(random.uniform(2, 4))
     
-    # Processar municípios
-    for idx, municipio in enumerate(municipios, 1):
-        print(f"\n[{idx:03d}/{len(municipios):03d}] Município: {municipio}")
-        
-        tentativa = 1
-        sucesso = False
-        
-        while tentativa <= MAX_TENTATIVAS and not sucesso:
-            try:
-                if tentativa > 1:
-                    espera = random.uniform(2, 4)
-                    print(f"  Tentativa {tentativa}/{MAX_TENTATIVAS} (espera: {espera:.1f}s)")
-                    time.sleep(espera)
-                
-                resultados = processar_municipio(driver, municipio, datas)
-                
-                if resultados:
-                    dados.extend(resultados)
-                    print(f"  ✓ {len(resultados)} dias coletados")
-                    sucesso = True
-                else:
-                    print(f"  ✗ Nenhum dado coletado na tentativa {tentativa}")
-                    tentativa += 1
-                    
-            except WebDriverException as e:
-                print(f"  ✗ Erro WebDriver (tentativa {tentativa}): {type(e).__name__}")
-                
-                # Tentar recriar o driver
-                if "session" in str(e).lower() or "chrome" in str(e).lower():
-                    print("  Recriando driver...")
-                    try:
-                        driver.quit()
-                    except:
-                        pass
-                    
-                    time.sleep(3)
-                    try:
-                        driver = criar_driver()
-                    except:
-                        print("  Não foi possível recriar o driver")
-                        break
-                
-                tentativa += 1
-                
-            except Exception as e:
-                print(f"  ✗ Erro inesperado (tentativa {tentativa}): {type(e).__name__}")
-                tentativa += 1
-        
-        # Salvar backup a cada 5 municípios
-        if idx % 5 == 0 and dados:
-            try:
-                df_temp = pd.DataFrame(dados)
-                df_temp.to_csv('temperatura_inmet_backup.csv', index=False, encoding='utf-8')
-                print(f"\n  💾 Backup salvo: {len(dados)} registros")
-            except Exception as e:
-                print(f"  ✗ Erro ao salvar backup: {e}")
-        
-        # Espera entre municípios
-        if idx < len(municipios):
-            espera_mun = random.uniform(ESPERA_MIN, ESPERA_MAX)
-            print(f"  ⏳ Aguardando {espera_mun:.1f}s...")
-            time.sleep(espera_mun)
+    driver.quit()
     
-    # Fechar driver
+    # SALVAR DADOS
+    if todos_dados:
+        df = pd.DataFrame(todos_dados)
+        
+        # NOME DO ARQUIVO: inmet.csv
+        nome_arquivo = 'inmet.csv'
+        
+        try:
+            df.to_csv(nome_arquivo, index=False, encoding='utf-8')
+            
+            # VERIFICAR E CRIAR SE NÃO EXISTIR
+            if not os.path.exists(nome_arquivo):
+                print(f"⚠️  Arquivo não criado, criando manualmente...")
+                df.to_csv(nome_arquivo, index=False, encoding='utf-8')
+            
+            # DAR PERMISSÕES
+            os.chmod(nome_arquivo, 0o666)
+            
+            file_size = os.path.getsize(nome_arquivo)
+            print(f"\n✅ ARQUIVO SALVO: {nome_arquivo}")
+            print(f"📊 Total de registros: {len(df)}")
+            print(f"📦 Tamanho: {file_size:,} bytes")
+            print(f"🔧 Permissões: {oct(os.stat(nome_arquivo).st_mode)[-3:]}")
+            
+            return True
+        except Exception as e:
+            print(f"✗ Erro ao salvar arquivo: {e}")
+            return False
+    else:
+        print("\n⚠️  NENHUM DADO COLETADO")
+        
+        # CRIAR ARQUIVO VAZIO COM CABEÇALHO
+        try:
+            nome_arquivo = 'inmet.csv'
+            cabecalho = "codigo_municipio,data,temp_min,temp_max,data_coleta\n"
+            with open(nome_arquivo, 'w', encoding='utf-8') as f:
+                f.write(cabecalho)
+            
+            # DAR PERMISSÕES
+            os.chmod(nome_arquivo, 0o666)
+            print(f"✅ Arquivo vazio criado: {nome_arquivo}")
+            return True
+        except Exception as e:
+            print(f"✗ Erro ao criar arquivo vazio: {e}")
+            return False
+
+# EXECUTAR
+if __name__ == "__main__":
+    print("\n" + "=" * 80)
+    sucesso = main()
+    
+    # CRIAR ARQUIVO DE STATUS
     try:
-        driver.quit()
-        print("\n✓ Driver finalizado")
+        with open('coleta_status.txt', 'w') as f:
+            f.write(f"STATUS: {'SUCESSO' if sucesso else 'FALHA'}\n")
+            f.write(f"DATA: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"MUNICIPIOS: {len(MUNICIPIOS_RJ)}\n")
+            f.write(f"ARQUIVO: inmet.csv\n")
+        
+        os.chmod('coleta_status.txt', 0o666)
+        print(f"📝 Status salvo em: coleta_status.txt")
     except:
         pass
     
-    # Processar resultados
-    print("\n" + "=" * 80)
-    print("PROCESSAMENTO CONCLUÍDO!")
-    print("=" * 80)
-    
-    if dados:
-        # Criar DataFrame
-        df = pd.DataFrame(dados)
-        
-        # Estatísticas
-        print(f"\n📊 ESTATÍSTICAS:")
-        print(f"   Total de registros: {len(df)}")
-        print(f"   Municípios com dados: {df['Código Município'].nunique()}")
-        print(f"\n   Distribuição por dia:")
-        
-        dias_counts = df['Data'].value_counts().sort_index()
-        for dia, count in dias_counts.items():
-            print(f"     {dia}: {count:3d} registros")
-        
-        # Salvar dados - AJUSTADO PARA GITHUB ACTIONS
-        try:
-            # CSV com timestamp para backup (na raiz do workspace)
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            csv_filename = f'temperatura_inmet_{timestamp}.csv'
-            
-            # Salvar na raiz
-            df.to_csv(csv_filename, index=False, encoding='utf-8')
-            
-            # Verificar se foi salvo
-            if os.path.exists(csv_filename):
-                file_size = os.path.getsize(csv_filename)
-                print(f"\n💾 Dados salvos em: {csv_filename}")
-                print(f"📂 Tamanho do arquivo: {file_size:,} bytes")
-                
-                # Exibir amostra
-                print(f"\n📄 AMOSTRA DOS DADOS (primeiras 5 linhas):")
-                print(df.head().to_string())
-                
-                return True, csv_filename
-            else:
-                print("\n✗ Erro: Arquivo não foi criado!")
-                return False, None
-                
-        except Exception as e:
-            print(f"\n✗ Erro ao salvar arquivos: {e}")
-            print(f"Dados coletados (últimos 5 registros):")
-            print(pd.DataFrame(dados[-5:]).to_string())
-            return False, None
-    else:
-        print("\n✗ Nenhum dado foi coletado!")
-        return False, None
-    
     print(f"\n🏁 Término: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 80)
-
-# ============================================
-# EXECUTAR
-# ============================================
-
-if __name__ == "__main__":
-    try:
-        print("\n" + "=" * 80)
-        print("INICIANDO EXECUÇÃO DO SCRIPT")
-        print("=" * 80)
-        
-        sucesso, arquivo = main()
-        
-        # Criar arquivo de status
-        status_filename = 'status_coleta.txt'
-        with open(status_filename, 'w') as f:
-            if sucesso and arquivo:
-                f.write(f"STATUS: SUCESSO\n")
-                f.write(f"ARQUIVO_GERADO: {arquivo}\n")
-                f.write(f"DATA_EXECUCAO: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"MENSAGEM: Coleta concluída com sucesso\n")
-            else:
-                f.write(f"STATUS: FALHA\n")
-                f.write(f"ARQUIVO_GERADO: NENHUM\n")
-                f.write(f"DATA_EXECUCAO: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"MENSAGEM: Falha na coleta de dados\n")
-        
-        print(f"\n✅ STATUS SALVO EM: {status_filename}")
-        
-    except KeyboardInterrupt:
-        print("\n\n⏹️  Execução interrompida")
-    except Exception as e:
-        print(f"\n\n💥 ERRO NÃO TRATADO: {type(e).__name__}")
-        print(f"Detalhes: {e}")
-        
-        # Salvar status de erro
-        with open('status_coleta.txt', 'w') as f:
-            f.write(f"STATUS: ERRO\n")
-            f.write(f"ERRO: {type(e).__name__}\n")
-            f.write(f"MENSAGEM: {str(e)[:200]}\n")
-            f.write(f"DATA_EXECUCAO: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-    finally:
-        print("\nScript finalizado.")
 EOF
 
-        echo "=== INICIANDO AMBIENTE GRÁFICO VIRTUAL ==="
+        # CONFIGURAR AMBIENTE
         Xvfb :99 -screen 0 1920x1080x24 &
         export DISPLAY=:99
         
-        echo "=== EXECUTANDO COLETA COMPLETA ==="
-        python coletar_inmet_completo.py
+        # EXECUTAR SCRIPT
+        python coletar_inmet.py
         
+        # VERIFICAR ARQUIVOS
         echo "=== ARQUIVOS GERADOS ==="
         sleep 2
-        echo "Listando arquivos CSV e TXT:"
-        find . -maxdepth 1 -type f \( -name "*.csv" -o -name "*.txt" \) | sort
         
-        # Mostrar conteúdo dos arquivos de status
-        if [ -f "status_coleta.txt" ]; then
-            echo -e "\n=== CONTEÚDO DO STATUS ==="
-            cat status_coleta.txt
+        # GARANTIR QUE O ARQUIVO EXISTA E TENHA PERMISSÕES
+        if [ ! -f "inmet.csv" ]; then
+            echo "⚠️  Arquivo inmet.csv não encontrado, criando..."
+            echo "codigo_municipio,data,temp_min,temp_max,data_coleta" > inmet.csv
         fi
         
-        # Contar linhas dos arquivos CSV
-        for csv_file in temperatura_inmet_*.csv 2>/dev/null; do
-            if [ -f "$csv_file" ]; then
-                lines=$(wc -l < "$csv_file")
-                echo -e "\nArquivo: $csv_file"
-                echo "Linhas: $lines"
-                echo "Primeiras 2 linhas:"
-                head -3 "$csv_file"
-            fi
-        done
+        # DAR PERMISSÕES COMPLETAS
+        chmod 666 inmet.csv 2>/dev/null || true
+        chmod 666 coleta_status.txt 2>/dev/null || true
+        
+        # MOSTRAR INFORMAÇÕES
+        echo "📄 Arquivo principal: inmet.csv"
+        if [ -f "inmet.csv" ]; then
+            lines=$(wc -l < inmet.csv)
+            size=$(stat -c%s inmet.csv 2>/dev/null || echo "0")
+            echo "   Linhas: $lines"
+            echo "   Tamanho: $size bytes"
+            echo "   Permissões: $(stat -c%A inmet.csv 2>/dev/null || echo 'N/A')"
+            
+            echo -e "\n📋 Primeiras 3 linhas:"
+            head -4 inmet.csv
+        fi
     
-    - name: Commitar e salvar resultados
+    - name: Commitar arquivo inmet.csv
       if: always()
       run: |
-        echo "=== SALVANDO RESULTADOS NO GITHUB ==="
+        echo "=== SALVANDO ARQUIVO inmet.csv ==="
         
-        # Configurar git
+        # CONFIGURAR GIT
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         
-        # Verificar se há arquivos CSV para commit
-        CSV_FILES=$(find . -maxdepth 1 -name "temperatura_inmet_*.csv" -type f)
+        # GARANTIR QUE O ARQUIVO EXISTA
+        if [ ! -f "inmet.csv" ]; then
+            echo "⚠️  Criando arquivo inmet.csv vazio..."
+            echo "codigo_municipio,data,temp_min,temp_max,data_coleta" > inmet.csv
+        fi
         
-        if [ -n "$CSV_FILES" ]; then
-            echo "✅ Encontrados $(echo "$CSV_FILES" | wc -l) arquivo(s) CSV"
+        # DAR PERMISSÕES
+        chmod 666 inmet.csv coleta_status.txt 2>/dev/null || true
+        
+        # ADICIONAR E COMMITAR
+        git add inmet.csv coleta_status.txt 2>/dev/null || true
+        
+        if ! git diff --cached --quiet; then
+            TIMESTAMP=$(date +'%Y-%m-%d %H:%M:%S')
+            LINES=$(wc -l < inmet.csv 2>/dev/null || echo "1")
+            RECORDS=$((LINES - 1))
             
-            # Listar arquivos com detalhes
-            echo "Arquivos encontrados:"
-            for file in $CSV_FILES; do
-                if [ -f "$file" ]; then
-                    size=$(stat -c%s "$file" 2>/dev/null || echo "0")
-                    lines=$(wc -l < "$file" 2>/dev/null || echo "0")
-                    echo "  📄 $file - $size bytes, $lines linhas"
-                fi
-            done
+            git commit -m "📊 Dados INMET - $TIMESTAMP ($RECORDS registros)"
             
-            # Adicionar todos os arquivos de dados
-            git add temperatura_inmet_*.csv status_coleta.txt temperatura_inmet_backup.csv 2>/dev/null || true
+            # SINCRONIZAR
+            git pull origin main --rebase --autostash 2>/dev/null || true
+            git push origin main
             
-            # Verificar se há mudanças
-            if ! git diff --cached --quiet; then
-                TIMESTAMP=$(date +'%Y-%m-%d %H:%M:%S')
-                
-                # Contar total de registros
-                TOTAL_RECORDS=0
-                for csv in temperatura_inmet_*.csv 2>/dev/null; do
-                    if [ -f "$csv" ]; then
-                        records=$(( $(wc -l < "$csv" 2>/dev/null || echo "1") - 1 ))
-                        TOTAL_RECORDS=$((TOTAL_RECORDS + records))
-                    fi
-                done
-                
-                COMMIT_MSG="📊 Dados INMET coletados - $TIMESTAMP"
-                COMMIT_MSG="$COMMIT_MSG ($TOTAL_RECORDS registros)"
-                
-                echo "Commit message: $COMMIT_MSG"
-                
-                git commit -m "$COMMIT_MSG"
-                
-                # Sincronizar com o repositório remoto
-                echo "Sincronizando com o repositório..."
-                git pull origin main --rebase --autostash 2>/dev/null || true
-                
-                # Fazer push
-                git push origin main
-                
-                echo "✅ Dados salvos e sincronizados com sucesso!"
-            else
-                echo "ℹ️ Nenhuma mudança para commitar"
-            fi
+            echo "✅ Arquivo inmet.csv salvo no repositório!"
         else
-            echo "⚠️ Nenhum arquivo CSV foi gerado"
-            
-            # Criar arquivo de status de erro se não existir
-            if [ ! -f "status_coleta.txt" ]; then
-                echo "Erro: Nenhum dado coletado" > erro_coleta.txt
-                echo "Data: $(date +'%Y-%m-%d %H:%M:%S')" >> erro_coleta.txt
-                git add erro_coleta.txt 2>/dev/null || true
-            fi
-            
-            if ! git diff --cached --quiet; then
-                git commit -m "❌ Erro na coleta INMET - $(date +'%Y-%m-%d %H:%M:%S')"
-                git pull origin main --rebase --autostash 2>/dev/null || true
-                git push origin main
-                echo "✅ Status de erro salvo"
-            fi
+            echo "ℹ️  Nenhuma mudança para commitar"
         fi
     
-    - name: Upload artifacts
+    - name: Upload artifact
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: dados-inmet-${{ github.run_number }}
+        name: dados-inmet
         path: |
-          temperatura_inmet_*.csv
-          status_coleta.txt
-          erro_coleta.txt
-          temperatura_inmet_backup.csv
-        if-no-files-found: warn
+          inmet.csv
+          coleta_status.txt
         retention-days: 7
-    
-    - name: Limpeza final
-      if: always()
-      run: |
-        echo "=== LIMPANDO PROCESSOS ==="
-        pkill -f Xvfb 2>/dev/null || true
-        pkill -f chrome 2>/dev/null || true
-        echo "✅ Processos finalizados"

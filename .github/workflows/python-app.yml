@@ -1,0 +1,639 @@
+name: Python GUI Application - Chrome & Full Dependencies
+
+on:
+  schedule:
+    # 8h e 20h UTC (5h e 17h Brasília) - duas vezes ao dia
+    - cron: '0 8 * * *'
+    - cron: '0 20 * * *'
+  
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: 'Executar mesmo sem mudanças'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  full-gui-environment:
+    runs-on: ubuntu-22.04
+    
+    timeout-minutes: 30
+    
+    strategy:
+      matrix:
+        python-version: ["3.10"]
+    
+    steps:
+    - name: Checkout com permissões completas
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+        persist-credentials: true
+    
+    - name: Configurar Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+        cache-dependency-path: '**/requirements.txt'
+    
+    - name: ATUALIZAR SISTEMA E INSTALAR TODAS AS DEPENDÊNCIAS
+      run: |
+        echo "=== ATUALIZANDO REPOSITÓRIOS ==="
+        sudo apt-get update -y
+        sudo apt-get upgrade -y
+        sudo apt-get dist-upgrade -y
+        
+        echo "=== INSTALANDO CHROME E DRIVERS ==="
+        # Chrome Stable
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+        echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+        
+        # ChromeDriver (versão compatível)
+        CHROME_VERSION=$(google-chrome-stable --version | awk '{print $3}' | cut -d'.' -f1)
+        CHROMEDRIVER_VERSION=$(wget -q -O - "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}")
+        wget -q "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip"
+        unzip chromedriver_linux64.zip
+        sudo mv chromedriver /usr/local/bin/
+        sudo chmod +x /usr/local/bin/chromedriver
+        
+        echo "=== INSTALANDO INTERFACE GRÁFICA COMPLETA ==="
+        # X11 e servidor gráfico
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          ubuntu-desktop \
+          xorg \
+          xserver-xorg \
+          xserver-xorg-core \
+          xserver-xorg-video-all \
+          xserver-xorg-input-all \
+          xinit \
+          x11-xserver-utils \
+          openbox \
+          lightdm \
+          gnome-session \
+          gdm3
+        
+        # Serviços de display virtual
+        sudo apt-get install -y \
+          xvfb \
+          x11vnc \
+          fluxbox \
+          ratpoison \
+          xdotool \
+          xterm \
+          rxvt-unicode
+        
+        echo "=== BIBLIOTECAS GRÁFICAS ESSENCIAIS ==="
+        sudo apt-get install -y \
+          libgtk-3-0 \
+          libgtk2.0-0 \
+          libgdk-pixbuf2.0-0 \
+          libnss3 \
+          libxss1 \
+          libasound2 \
+          libxtst6 \
+          libxkbcommon-x11-0 \
+          libxcb-icccm4 \
+          libxcb-image0 \
+          libxcb-keysyms1 \
+          libxcb-randr0 \
+          libxcb-render-util0 \
+          libxcb-shape0 \
+          libxcb-xinerama0 \
+          libxcb-xfixes0 \
+          libxcb-xinput0 \
+          libxcb-xkb1 \
+          libxcomposite1 \
+          libxcursor1 \
+          libxdamage1 \
+          libxfixes3 \
+          libxi6 \
+          libxrandr2 \
+          libxrender1 \
+          libxt6 \
+          libcups2 \
+          libdbus-1-3 \
+          libatk1.0-0 \
+          libatk-bridge2.0-0 \
+          libgbm1 \
+          libdrm2 \
+          libglib2.0-0 \
+          libgl1-mesa-glx \
+          libgl1-mesa-dri \
+          mesa-utils \
+          libegl1 \
+          libpango-1.0-0 \
+          libcairo2 \
+          libfontconfig1 \
+          libfreetype6 \
+          libharfbuzz0b \
+          libgstreamer1.0-0 \
+          libgstreamer-plugins-base1.0-0 \
+          libgstreamer-plugins-good1.0-0 \
+          libsm6 \
+          libice6 \
+          libjpeg-turbo8 \
+          libpng16-16 \
+          libtiff5 \
+          libwebp6 \
+          libwebpdemux2 \
+          libwoff1 \
+          libxml2 \
+          libxslt1.1 \
+          libevent-2.1-7 \
+          libopus0 \
+          libvpx7 \
+          libsnappy1v5 \
+          libenchant-2-2 \
+          libhyphen0 \
+          libsecret-1-0 \
+          libwayland-client0 \
+          libwayland-server0 \
+          libwayland-cursor0 \
+          libwayland-egl1 \
+          libvulkan1
+        
+        echo "=== FERRAMENTAS DE DESENVOLVIMENTO ==="
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          pkg-config \
+          git \
+          curl \
+          wget \
+          unzip \
+          zip \
+          tar \
+          gzip \
+          bzip2 \
+          software-properties-common \
+          apt-transport-https \
+          ca-certificates \
+          gnupg \
+          lsb-release \
+          htop \
+          tree \
+          nano \
+          vim \
+          net-tools \
+          dnsutils \
+          iputils-ping
+        
+        echo "=== PYTHON E DEPENDÊNCIAS ==="
+        sudo apt-get install -y \
+          python3-dev \
+          python3-pip \
+          python3-venv \
+          python3-tk \
+          python3-wxgtk4.0 \
+          tk-dev \
+          libffi-dev \
+          libssl-dev \
+          libreadline-dev \
+          libsqlite3-dev \
+          libbz2-dev \
+          libncurses5-dev \
+          libncursesw5-dev \
+          libgdbm-dev \
+          liblzma-dev \
+          zlib1g-dev \
+          libopenblas-dev \
+          liblapack-dev \
+          gfortran
+        
+        echo "=== BANCOS DE DADOS E DRIVERS ==="
+        sudo apt-get install -y \
+          sqlite3 \
+          libsqlite3-dev \
+          postgresql-client \
+          libpq-dev \
+          mysql-client \
+          libmysqlclient-dev \
+          redis-server \
+          libhdf5-dev \
+          libgeos-dev
+        
+        echo "=== FONTS E LOCALIZAÇÃO ==="
+        sudo apt-get install -y \
+          fonts-liberation \
+          fonts-dejavu \
+          fonts-freefont-ttf \
+          fonts-noto \
+          fonts-noto-cjk \
+          fonts-noto-color-emoji \
+          ttf-ubuntu-font-family \
+          language-pack-pt \
+          language-pack-pt-base
+        
+        echo "=== VERIFICANDO INSTALAÇÕES ==="
+        echo "Chrome: $(google-chrome-stable --version || echo 'Não instalado')"
+        echo "ChromeDriver: $(chromedriver --version || echo 'Não instalado')"
+        echo "Xvfb: $(Xvfb -help 2>&1 | head -1 || echo 'Não instalado')"
+        echo "Python3: $(python3 --version)"
+        
+        # Limpeza para economizar espaço
+        sudo apt-get autoremove -y
+        sudo apt-get clean
+    
+    - name: CONFIGURAR AMBIENTE E VARIÁVEIS
+      run: |
+        echo "=== CONFIGURANDO AMBIENTE ==="
+        
+        # Criar diretórios necessários
+        mkdir -p ~/.config/openbox
+        mkdir -p ~/.cache/chromium
+        mkdir -p ~/.cache/google-chrome
+        
+        # Configurar Openbox
+        cp /etc/xdg/openbox/rc.xml ~/.config/openbox/rc.xml 2>/dev/null || true
+        
+        # Configurar permissões
+        sudo chmod 777 /tmp
+        sudo chmod 777 /dev/shm
+        
+        # Iniciar Xvfb em background
+        nohup Xvfb :99 -ac -screen 0 1920x1080x24 > /tmp/xvfb.log 2>&1 &
+        sleep 5
+        
+        # Exportar variáveis de ambiente
+        echo "DISPLAY=:99" | tee -a $GITHUB_ENV
+        echo "XDG_RUNTIME_DIR=/tmp/runtime-$USER" | tee -a $GITHUB_ENV
+        echo "CHROME_BIN=/usr/bin/google-chrome-stable" | tee -a $GITHUB_ENV
+        echo "CHROMEDRIVER_PATH=/usr/local/bin/chromedriver" | tee -a $GITHUB_ENV
+        
+        # Configurar caminhos
+        export DISPLAY=:99
+        export PATH="/usr/local/bin:$PATH"
+        
+        echo "=== TESTANDO DISPLAY ==="
+        xdpyinfo -display :99 > /dev/null && echo "✓ Xvfb funcionando" || echo "✗ Xvfb falhou"
+        
+        # Testar Chrome
+        timeout 10s google-chrome-stable --no-sandbox --disable-dev-shm-usage --headless --disable-gpu --remote-debugging-port=9222 --disable-software-rasterizer about:blank &
+        sleep 3
+        echo "✓ Chrome iniciado em background"
+    
+    - name: INSTALAR TODOS OS PACOTES PYTHON
+      run: |
+        echo "=== ATUALIZANDO PIP ==="
+        python -m pip install --upgrade pip setuptools wheel
+        
+        echo "=== INSTALANDO PACOTES ESSENCIAIS ==="
+        pip install --no-cache-dir \
+          numpy==1.24.3 \
+          pandas==1.5.3 \
+          matplotlib==3.7.1 \
+          seaborn==0.12.2 \
+          scipy==1.10.1 \
+          scikit-learn==1.3.0 \
+          jupyter==1.0.0 \
+          ipython==8.14.0 \
+          notebook==7.0.0 \
+          requests==2.31.0 \
+          beautifulsoup4==4.12.2 \
+          lxml==4.9.3 \
+          html5lib==1.1 \
+          openpyxl==3.1.2 \
+          xlrd==2.0.1 \
+          pyarrow==12.0.1 \
+          fastparquet==2023.4.0
+        
+        echo "=== PACOTES PARA WEB E AUTOMAÇÃO ==="
+        pip install --no-cache-dir \
+          selenium==4.12.0 \
+          webdriver-manager==3.9.1 \
+          undetected-chromedriver==3.5.4 \
+          playwright==1.36.0 \
+          pyautogui==0.9.54 \
+          pynput==1.7.6 \
+          pyperclip==1.8.2 \
+          schedule==1.2.0 \
+          aiohttp==3.8.5 \
+          httpx==0.24.1 \
+          websockets==12.0
+        
+        echo "=== INTERFACES GRÁFICAS ==="
+        pip install --no-cache-dir \
+          tk==0.1.0 \
+          PyQt5==5.15.9 \
+          PyQtWebEngine==5.15.6 \
+          PySide2==5.15.2.1 \
+          wxPython==4.2.1 \
+          kivy==2.2.1 \
+          pygobject==3.44.1 \
+          pygame==2.5.0 \
+          pyqtgraph==0.13.3 \
+          pyopengl==3.1.7 \
+          customtkinter==5.2.0 \
+          ttkthemes==3.2.2 \
+          pysimplegui==4.60.5 \
+          dearpygui==1.10.0 \
+          flet==0.14.0 \
+          eel==0.16.0 \
+          flask==3.0.0 \
+          dash==2.14.0 \
+          plotly==5.17.0 \
+          bokeh==3.2.2 \
+          streamlit==1.27.0
+        
+        echo "=== DISPLAY VIRTUAL E CAPTURA ==="
+        pip install --no-cache-dir \
+          pyvirtualdisplay==3.0 \
+          pillow==10.0.0 \
+          imageio==2.31.1 \
+          opencv-python==4.8.1.78 \
+          pygetwindow==0.0.9 \
+          pyscreenshot==3.1 \
+          mss==7.0.1
+        
+        echo "=== FERRAMENTAS DE DESENVOLVIMENTO ==="
+        pip install --no-cache-dir \
+          flake8==6.1.0 \
+          pytest==7.4.2 \
+          pytest-cov==4.1.0 \
+          pytest-html==4.0.2 \
+          pytest-xdist==3.5.0 \
+          black==23.9.1 \
+          isort==5.12.0 \
+          pylint==3.0.1 \
+          mypy==1.5.1 \
+          bandit==1.7.5 \
+          safety==2.3.5 \
+          pre-commit==3.5.0 \
+          pytest-playwright==0.4.3
+        
+        echo "=== ANÁLISE DE DADOS AVANÇADA ==="
+        pip install --no-cache-dir \
+          statsmodels==0.14.0 \
+          xgboost==2.0.0 \
+          lightgbm==4.1.0 \
+          catboost==1.2.2 \
+          imbalanced-learn==0.11.0 \
+          mlxtend==0.22.0 \
+          nltk==3.8.1 \
+          spacy==3.6.1 \
+          textblob==0.17.1 \
+          gensim==4.3.2 \
+          transformers==4.34.0 \
+          torch==2.1.0 \
+          torchvision==0.16.0 \
+          tensorflow==2.13.0 \
+          keras==2.13.1
+        
+        echo "=== UTILITÁRIOS E OUTROS ==="
+        pip install --no-cache-dir \
+          python-dotenv==1.0.0 \
+          python-dateutil==2.8.2 \
+          pytz==2023.3 \
+          tzlocal==5.1 \
+          colorama==0.4.6 \
+          tqdm==4.66.1 \
+          rich==13.5.3 \
+          progressbar2==4.2.0 \
+          watchdog==3.0.0 \
+          psutil==5.9.6 \
+          pyyaml==6.0.1 \
+          toml==0.10.2 \
+          cryptography==41.0.5 \
+          python-pptx==0.6.23 \
+          pywin32==306 \
+          pypdf2==3.0.1 \
+          reportlab==4.0.4
+        
+        # Instalar requirements.txt se existir
+        if [ -f requirements.txt ]; then
+          echo "=== INSTALANDO REQUIREMENTS.TXT ==="
+          pip install --no-cache-dir -r requirements.txt
+        fi
+        
+        echo "=== VERIFICANDO INSTALAÇÕES PYTHON ==="
+        python -c "
+        import sys
+        print(f'Python: {sys.version}')
+        
+        checks = [
+            ('pandas', lambda: __import__('pandas').__version__),
+            ('selenium', lambda: __import__('selenium').__version__),
+            ('numpy', lambda: __import__('numpy').__version__),
+            ('matplotlib', lambda: __import__('matplotlib').__version__),
+            ('PyQt5', lambda: __import__('PyQt5').__version__),
+            ('tkinter', lambda: 'OK' if __import__('tkinter') else 'FAIL'),
+            ('chrome driver', lambda: 'Available' if __import__('subprocess').run(['which', 'chromedriver'], capture_output=True).returncode == 0 else 'Not found'),
+        ]
+        
+        for name, check in checks:
+            try:
+                result = check()
+                print(f'✓ {name}: {result}')
+            except Exception as e:
+                print(f'✗ {name}: {e}')
+        "
+    
+    - name: EXECUTAR SEU SCRIPT PYTHON COM ESCRITA NA RAIZ
+      env:
+        DISPLAY: :99
+        PYTHONUNBUFFERED: 1
+        CHROME_BIN: /usr/bin/google-chrome-stable
+        CHROMEDRIVER_PATH: /usr/local/bin/chromedriver
+      run: |
+        echo "=== CONFIGURANDO ESCRITA NA RAIZ ==="
+        
+        # Garantir permissões de escrita
+        sudo chown -R $USER:$USER $GITHUB_WORKSPACE
+        chmod -R 755 $GITHUB_WORKSPACE
+        
+        echo "Diretório atual: $(pwd)"
+        echo "Permissões: $(ls -la | head -5)"
+        
+        # Iniciar display virtual
+        export DISPLAY=:99
+        Xvfb :99 -screen 0 1920x1080x24 &
+        sleep 3
+        
+        echo "=== EXECUTANDO SCRIPT DE EXEMPLO ==="
+        
+        # Criar script de exemplo (substitua pelo seu)
+        cat > main_script.py << 'EOF'
+        import pandas as pd
+        import numpy as np
+        import datetime
+        import os
+        import subprocess
+        import sys
+        
+        print("=" * 60)
+        print("EXECUTANDO SCRIPT COM TODAS AS DEPENDÊNCIAS")
+        print("=" * 60)
+        
+        # Testar imports
+        print("\n1. TESTANDO IMPORTS:")
+        try:
+            import tkinter
+            print("✓ Tkinter: OK")
+        except Exception as e:
+            print(f"✗ Tkinter: {e}")
+        
+        try:
+            import PyQt5
+            print("✓ PyQt5: OK")
+        except Exception as e:
+            print(f"✗ PyQt5: {e}")
+        
+        try:
+            from selenium import webdriver
+            from selenium.webdriver.chrome.service import Service
+            from selenium.webdriver.chrome.options import Options
+            print("✓ Selenium: OK")
+            
+            # Testar Chrome
+            chrome_options = Options()
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--disable-gpu')
+            
+            service = Service('/usr/local/bin/chromedriver')
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            driver.get('https://www.google.com')
+            print(f"✓ Chrome funcionando: {driver.title}")
+            driver.quit()
+        except Exception as e:
+            print(f"✗ Chrome/Selenium: {e}")
+        
+        print("\n2. CRIANDO DATAFRAME DE EXEMPLO:")
+        # Criar dados de exemplo
+        np.random.seed(42)
+        dates = pd.date_range(start='2024-01-01', periods=50, freq='D')
+        data = {
+            'data': dates,
+            'temperatura_max': np.random.uniform(25, 35, 50),
+            'temperatura_min': np.random.uniform(15, 25, 50),
+            'umidade': np.random.uniform(60, 90, 50),
+            'pressao': np.random.uniform(1010, 1020, 50),
+            'precipitacao': np.random.exponential(5, 50),
+            'vento_velocidade': np.random.uniform(5, 15, 50),
+            'vento_direcao': np.random.choice(['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'], 50),
+            'radiacao': np.random.uniform(100, 500, 50)
+        }
+        
+        df = pd.DataFrame(data)
+        
+        print(f"DataFrame criado: {df.shape[0]} linhas x {df.shape[1]} colunas")
+        print(df.head())
+        
+        print("\n3. SALVANDO ARQUIVOS NA RAIZ:")
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        # Salvar CSV (COMO VOCÊ PEDIU)
+        csv_filename = f'temperatura_inmet_{timestamp}.csv'
+        df.to_csv(csv_filename, index=False, encoding='utf-8')
+        
+        # Salvar outros formatos
+        excel_filename = f'temperatura_inmet_{timestamp}.xlsx'
+        df.to_excel(excel_filename, index=False)
+        
+        json_filename = f'temperatura_inmet_{timestamp}.json'
+        df.to_json(json_filename, orient='records', indent=2)
+        
+        print(f"✓ CSV salvo: {os.path.abspath(csv_filename)}")
+        print(f"✓ Excel salvo: {os.path.abspath(excel_filename)}")
+        print(f"✓ JSON salvo: {os.path.abspath(json_filename)}")
+        
+        print("\n4. VERIFICANDO ARQUIVOS:")
+        for file in [csv_filename, excel_filename, json_filename]:
+            if os.path.exists(file):
+                size = os.path.getsize(file)
+                print(f"  {file}: {size:,} bytes")
+                
+                # Ler e mostrar amostra
+                if file.endswith('.csv'):
+                    df_check = pd.read_csv(file)
+                    print(f"    Amostra: {df_check.shape[0]} registros")
+            else:
+                print(f"✗ {file}: NÃO ENCONTRADO")
+        
+        print("\n5. ESTATÍSTICAS:")
+        print(f"Temperatura média: {df['temperatura_max'].mean():.1f}°C")
+        print(f"Umidade média: {df['umidade'].mean():.1f}%")
+        print(f"Precipitação total: {df['precipitacao'].sum():.1f} mm")
+        
+        print("\n" + "=" * 60)
+        print("SCRIPT CONCLUÍDO COM SUCESSO!")
+        print("=" * 60)
+        EOF
+        
+        # Executar o script
+        python main_script.py
+        
+        echo "\n=== VERIFICANDO ARQUIVOS GERADOS ==="
+        ls -la *.csv *.xlsx *.json 2>/dev/null || echo "Nenhum arquivo encontrado"
+        
+        # Mostrar conteúdo do CSV
+        if ls temperatura_inmet_*.csv 1> /dev/null 2>&1; then
+            echo "\n=== PRIMEIRAS LINHAS DO CSV ==="
+            head -n 5 temperatura_inmet_*.csv
+        fi
+    
+    - name: COMMIT E PUSH AUTOMÁTICO
+      if: success()
+      run: |
+        echo "=== SALVANDO RESULTADOS NO REPOSITÓRIO ==="
+        
+        # Configurar git
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # Verificar mudanças
+        git status
+        
+        # Adicionar todos os arquivos de dados
+        git add *.csv *.xlsx *.json 2>/dev/null || true
+        
+        # Commit se houver mudanças
+        if git diff --cached --quiet; then
+          echo "Nenhuma mudança para commitar"
+        else
+          TIMESTAMP=$(date +'%Y-%m-%d %H:%M:%S')
+          git commit -m "📊 Dados INMET coletados - $TIMESTAMP [skip ci]"
+          
+          # Pull antes do push
+          git pull origin ${{ github.ref_name }} --rebase || true
+          
+          # Push
+          git push origin ${{ github.ref_name }}
+          echo "✓ Arquivos commitados e pushados"
+        fi
+    
+    - name: UPLOAD ARTIFACTS
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: dados-inmet-${{ github.run_number }}
+        path: |
+          temperatura_inmet_*.csv
+          temperatura_inmet_*.xlsx
+          temperatura_inmet_*.json
+        retention-days: 30
+        if-no-files-found: error
+    
+    - name: LIMPEZA FINAL
+      if: always()
+      run: |
+        echo "=== LIMPANDO PROCESSOS ==="
+        pkill -f chrome 2>/dev/null || true
+        pkill -f Xvfb 2>/dev/null || true
+        echo "Processos finalizados"
+        
+        echo "\n=== ESPAÇO DISPONÍVEL ==="
+        df -h /

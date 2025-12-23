@@ -1,202 +1,181 @@
-name: Coletor INMET
+name: Coletor INMET GUI (92 Municípios RJ)
 
 on:
   schedule:
     - cron: '0 6 * * *'
     - cron: '0 18 * * *'
-  
-  push:
-    branches: [ "main" ]
-  
   workflow_dispatch:
 
 jobs:
-  coletar:
+  coletar-inmet:
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    
+    timeout-minutes: 90
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.10"
-    
-    - name: Install Chrome
-      run: |
-        sudo apt update
-        wget -q -O chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-        sudo dpkg -i chrome.deb || sudo apt install -y -f
-        rm chrome.deb
-        sudo apt install -y xvfb libnss3 libxss1 libasound2 libxtst6
-    
-    - name: Install Python packages
-      run: |
-        pip install selenium pandas webdriver-manager
-    
-    - name: Run collection script
-      run: |
-        # Criar script Python SIMPLES
-        cat > coletar.py << 'EOF'
-import time
-import random
-import pandas as pd
-import subprocess
-import os
-import sys
-from datetime import datetime, timedelta
+      - name: Checkout
+        uses: actions/checkout@v4
 
-print("=" * 80)
-print("INMET COLLECTOR")
-print("=" * 80)
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
 
-try:
-    from selenium import webdriver
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from webdriver_manager.chrome import ChromeDriverManager
-    from selenium.webdriver.chrome.service import Service as ChromeService
-    print("✓ Libraries imported")
-except Exception as e:
-    print(f"✗ Import error: {e}")
-    sys.exit(1)
+      - name: Instalar dependências gráficas completas (Ubuntu)
+        run: |
+          sudo apt-get update
 
-# Sample of 5 municipalities for testing
-MUNICIPIOS = ['3300100', '3300159', '3300209', '3300225', '3300233']
+          # Base gráfica + X11
+          sudo apt-get install -y \
+            xvfb xauth x11-utils dbus-x11 \
+            libgtk-3-0 libgbm1 libasound2 \
+            libnss3 libxss1 libxtst6 \
+            libatk-bridge2.0-0 libatk1.0-0 \
+            libcups2 libdrm2 libxdamage1 \
+            libxrandr2 libu2f-udev fonts-liberation \
+            libappindicator3-1
 
-def create_driver():
-    try:
-        options = Options()
-        options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        
-        service = ChromeService(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
-        driver.set_page_load_timeout(30)
-        return driver
-    except Exception as e:
-        print(f"✗ Driver error: {e}")
-        return None
+          # Utilitários
+          sudo apt-get install -y wget unzip ca-certificates
 
-def collect_data(driver, code):
-    try:
-        url = f"https://previsao.inmet.gov.br/{code}"
-        driver.get(url)
-        time.sleep(3)
-        
-        # Try to find temperature data
-        elements = driver.find_elements(By.CSS_SELECTOR, "div, span, p, section")
-        
-        data = []
-        for elem in elements[:20]:
-            text = elem.text.strip()
-            if text and ('°C' in text or 'Temp' in text):
-                data.append(text)
-        
-        if data:
-            return {
-                'codigo': code,
-                'data': datetime.now().strftime('%Y-%m-%d'),
-                'info': ' | '.join(data[:3]),
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-        else:
-            return {
-                'codigo': code,
-                'data': datetime.now().strftime('%Y-%m-%d'),
-                'info': 'No data found',
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-            
-    except Exception as e:
-        print(f"  Error: {code} - {e}")
-        return None
+      - name: Instalar Google Chrome (GUI)
+        run: |
+          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo dpkg -i google-chrome-stable_current_amd64.deb || sudo apt-get -f install -y
+          rm -f google-chrome-stable_current_amd64.deb
 
-# MAIN EXECUTION
-print(f"Processing {len(MUNICIPIOS)} municipalities")
-all_data = []
+          google-chrome --version
 
-driver = create_driver()
-if not driver:
-    print("✗ Failed to create driver")
-    sys.exit(1)
+      - name: Instalar dependências Python
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            selenium==4.16.0 \
+            pandas==2.1.3 \
+            webdriver-manager==4.0.1
 
-for idx, municipio in enumerate(MUNICIPIOS, 1):
-    print(f"[{idx}/{len(MUNICIPIOS)}] {municipio}")
-    result = collect_data(driver, municipio)
-    if result:
-        all_data.append(result)
-        print(f"  ✓ Collected")
-    time.sleep(2)
+      - name: Criar e executar coletor INMET (GUI)
+        shell: bash
+        run: |
+          echo "=== CRIANDO SCRIPT PYTHON ==="
 
-driver.quit()
+          cat > coletar_inmet.py << 'EOF'
+          import time, random, os
+          import pandas as pd
+          from datetime import datetime, timedelta
 
-# SAVE DATA
-if all_data:
-    df = pd.DataFrame(all_data)
-    filename = 'inmet.csv'
-    df.to_csv(filename, index=False, encoding='utf-8')
-    
-    print(f"\n✅ SAVED: {filename}")
-    print(f"📊 Records: {len(df)}")
-    print(f"\nSample data:")
-    print(df.head())
-    
-    # Create status file
-    with open('status.txt', 'w') as f:
-        f.write(f"STATUS: SUCCESS\n")
-        f.write(f"RECORDS: {len(df)}\n")
-        f.write(f"DATE: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-else:
-    print("\n⚠️ NO DATA COLLECTED")
-    # Create empty file
-    with open('inmet.csv', 'w') as f:
-        f.write("codigo,data,info,timestamp\n")
-    with open('status.txt', 'w') as f:
-        f.write("STATUS: NO_DATA\n")
+          from selenium import webdriver
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.chrome.options import Options
+          from selenium.webdriver.support.ui import WebDriverWait
+          from selenium.webdriver.support import expected_conditions as EC
+          from selenium.webdriver.chrome.service import Service
+          from webdriver_manager.chrome import ChromeDriverManager
 
-print(f"\n🏁 Finished: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-print("=" * 80)
-EOF
+          MUNICIPIOS_RJ = [
+            '3300100','3300159','3300209','3300225','3300233','3300258','3300308',
+            '3300407','3300456','3300506','3300605','3300704','3300803','3300902',
+            '3300936','3300951','3301009','3301108','3301157','3301207','3301306',
+            '3301405','3301504','3301603','3301702','3301801','3301850','3301876',
+            '3301900','3302007','3302056','3302106','3302205','3302254','3302270',
+            '3302304','3302403','3302452','3302502','3302601','3302700','3302809',
+            '3302858','3302908','3303005','3303104','3303203','3303302','3303401',
+            '3303500','3303609','3303708','3303807','3303856','3303906','3303955',
+            '3304003','3304102','3304110','3304128','3304144','3304151','3304201',
+            '3304300','3304409','3304508','3304524','3304557','3304607','3304706',
+            '3304755','3304805','3304904','3305000','3305109','3305133','3305158',
+            '3305208','3305307','3305406','3305505','3305554','3305604','3305703',
+            '3305752','3305802','3305901','3306008','3306107','3306156','3306206',
+            '3306305'
+          ]
 
-        # Set up display and run
-        Xvfb :99 -screen 0 1920x1080x24 &
-        export DISPLAY=:99
-        
-        python coletar.py
-        
-        echo "=== FILES CREATED ==="
-        ls -la *.csv *.txt
-        
-        if [ -f "inmet.csv" ]; then
-            echo -e "\n=== CSV CONTENT ==="
-            head -5 inmet.csv
-        fi
-    
-    - name: Commit files
-      if: always()
-      run: |
-        git config --global user.name "github-actions"
-        git config --global user.email "actions@github.com"
-        
-        if [ -f "inmet.csv" ]; then
-            git add inmet.csv status.txt
-            if ! git diff --cached --quiet; then
-                git commit -m "📊 INMET data $(date +'%Y-%m-%d %H:%M')"
-                git pull --rebase
-                git push
-                echo "✅ Files committed"
-            fi
-        fi
-    
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: inmet-data
-        path: |
-          inmet.csv
-          status.txt
+          def criar_driver():
+              options = Options()
+              options.add_argument("--no-sandbox")
+              options.add_argument("--disable-dev-shm-usage")
+              options.add_argument("--disable-infobars")
+              options.add_argument("--disable-extensions")
+              options.add_argument("--window-size=1920,1080")
+
+              service = Service(ChromeDriverManager().install())
+              return webdriver.Chrome(service=service, options=options)
+
+          def coletar(driver, codigo):
+              url = f"https://previsao.inmet.gov.br/{codigo}"
+              driver.get(url)
+
+              WebDriverWait(driver, 30).until(
+                  EC.presence_of_element_located((By.TAG_NAME, "section"))
+              )
+
+              time.sleep(2)
+              hoje = datetime.today()
+              dados = []
+
+              for sec in driver.find_elements(By.TAG_NAME, "section"):
+                  if len(dados) >= 5:
+                      break
+                  txt = sec.text.lower()
+                  if "mínima" in txt and "máxima" in txt:
+                      linhas = sec.text.split("\n")
+                      try:
+                          tmin = [l for l in linhas if "mínima" in l.lower()][0]
+                          tmax = [l for l in linhas if "máxima" in l.lower()][0]
+                          dados.append({
+                              "codigo_municipio": codigo,
+                              "data": (hoje + timedelta(days=len(dados))).strftime("%Y-%m-%d"),
+                              "temp_min": tmin.split(":")[-1].replace("°c","").strip(),
+                              "temp_max": tmax.split(":")[-1].replace("°c","").strip(),
+                              "data_coleta": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                          })
+                      except:
+                          pass
+              return dados
+
+          driver = criar_driver()
+          todos = []
+
+          for i, m in enumerate(MUNICIPIOS_RJ, 1):
+              print(f"[{i:03d}/092] {m}")
+              try:
+                  todos.extend(coletar(driver, m))
+              except Exception as e:
+                  print("Erro:", e)
+              time.sleep(random.uniform(2,4))
+
+          driver.quit()
+
+          df = pd.DataFrame(todos)
+          if df.empty:
+              df = pd.DataFrame(columns=["codigo_municipio","data","temp_min","temp_max","data_coleta"])
+
+          df.to_csv("inmet.csv", index=False)
+          os.chmod("inmet.csv", 0o666)
+
+          with open("coleta_status.txt","w") as f:
+              f.write(f"STATUS: SUCESSO\nREGISTROS: {len(df)}\nDATA: {datetime.now()}\n")
+          os.chmod("coleta_status.txt", 0o666)
+          EOF
+
+          echo "=== INICIANDO DISPLAY GRÁFICO (Xvfb) ==="
+          Xvfb :99 -screen 0 1920x1080x24 &
+          export DISPLAY=:99
+          sleep 3
+
+          echo "=== EXECUTANDO COLETOR ==="
+          python coletar_inmet.py
+
+      - name: Commitar resultados
+        if: always()
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add inmet.csv coleta_status.txt
+
+          if ! git diff --cached --quiet; then
+            git commit -m "🖥️ INMET GUI - $(date '+%Y-%m-%d %H:%M:%S')"
+            git pull origin main --rebase --autostash || true
+            git push origin main
+          else
+            echo "Sem alterações"
+          fi

@@ -343,7 +343,7 @@ def main():
         # Salvar dados
         try:
             # CSV principal
-            df.to_csv('/home/peduardo/temperatura_inmet.csv', index=False, encoding='utf-8')
+            df.to_csv('temperatura_inmet.csv', index=False, encoding='utf-8')
             print(f"\n💾 Dados salvos em: temperatura_inmet.csv")
             
             # CSV com timestamp para backup

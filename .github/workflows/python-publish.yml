@@ -20,36 +20,41 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Instalar dependências gráficas Ubuntu (completas)
+      - name: Instalar dependências gráficas + Chrome + Chromedriver
         run: |
           sudo apt-get update
+
+          # Dependências gráficas completas
           sudo apt-get install -y \
             xvfb xauth x11-utils dbus-x11 \
             libgtk-3-0 libgbm1 libasound2 \
             libnss3 libxss1 libxtst6 \
             libatk-bridge2.0-0 libatk1.0-0 \
             libcups2 libdrm2 libxdamage1 \
-            libxrandr2 libu2f-udev fonts-liberation \
-            libappindicator3-1 \
+            libxrandr2 fonts-liberation \
             wget unzip ca-certificates
 
-      - name: Instalar Google Chrome (oficial)
-        run: |
+          # Chrome
           wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
           sudo dpkg -i google-chrome-stable_current_amd64.deb || sudo apt-get -f install -y
           rm -f google-chrome-stable_current_amd64.deb
+
+          # Chromedriver (CORRETO)
+          sudo apt-get install -y chromium-chromedriver
+
+          # Verificações
           google-chrome --version
+          chromedriver --version
+          which chromedriver
 
       - name: Instalar dependências Python
         run: |
           python -m pip install --upgrade pip
-          pip install selenium==4.16.0 pandas==2.1.3 webdriver-manager==4.0.1
+          pip install selenium==4.16.0 pandas==2.1.3
 
       - name: Criar e executar coletor INMET (GUI)
         shell: bash
         run: |
-          echo "=== CRIANDO SCRIPT PYTHON ==="
-
           cat > coletar_inmet.py << 'EOF'
           import time, random, os
           import pandas as pd
@@ -61,7 +66,6 @@ jobs:
           from selenium.webdriver.support.ui import WebDriverWait
           from selenium.webdriver.support import expected_conditions as EC
           from selenium.webdriver.chrome.service import Service
-          from webdriver_manager.chrome import ChromeDriverManager
 
           MUNICIPIOS_RJ = [
             '3300100','3300159','3300209','3300225','3300233','3300258','3300308',
@@ -84,28 +88,19 @@ jobs:
               options = Options()
               options.add_argument("--no-sandbox")
               options.add_argument("--disable-dev-shm-usage")
-              options.add_argument("--disable-extensions")
-              options.add_argument("--disable-infobars")
               options.add_argument("--window-size=1920,1080")
 
-              # GARANTIR CHROME DO SISTEMA
-              options.binary_location = "/usr/bin/google-chrome"
-
-              service = Service(
-                  ChromeDriverManager(chrome_type="google").install()
-              )
-
+              service = Service("/usr/bin/chromedriver")
               return webdriver.Chrome(service=service, options=options)
 
           def coletar(driver, codigo):
               url = f"https://previsao.inmet.gov.br/{codigo}"
               driver.get(url)
-
               WebDriverWait(driver, 30).until(
                   EC.presence_of_element_located((By.TAG_NAME, "section"))
               )
-
               time.sleep(2)
+
               hoje = datetime.today()
               dados = []
 
@@ -154,12 +149,10 @@ jobs:
           os.chmod("coleta_status.txt", 0o666)
           EOF
 
-          echo "=== INICIANDO DISPLAY GRÁFICO (Xvfb) ==="
           Xvfb :99 -screen 0 1920x1080x24 &
           export DISPLAY=:99
           sleep 3
 
-          echo "=== EXECUTANDO COLETOR ==="
           python coletar_inmet.py
 
       - name: Commitar resultados
@@ -167,13 +160,9 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
           git add inmet.csv coleta_status.txt
-
           if ! git diff --cached --quiet; then
             git commit -m "🖥️ INMET GUI - $(date '+%Y-%m-%d %H:%M:%S')"
             git pull origin main --rebase --autostash || true
             git push origin main
-          else
-            echo "Sem alterações"
           fi

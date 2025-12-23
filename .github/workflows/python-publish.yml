@@ -52,7 +52,6 @@ jobs:
         
         # Criar script Python
         cat > coletar_inmet.py << 'EOF'
-import time
 import random
 import pandas as pd
 import subprocess

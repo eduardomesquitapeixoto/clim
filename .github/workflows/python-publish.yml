@@ -50,7 +50,7 @@ jobs:
       run: |
         echo "=== INICIANDO COLETA DOS 92 MUNICÍPIOS ==="
         
-        # Criar script Python CORRIGIDO
+        # Criar script Python CORRETAMENTE INDENTADO
         cat > coletar_inmet.py << 'EOF'
 import time
 import random
